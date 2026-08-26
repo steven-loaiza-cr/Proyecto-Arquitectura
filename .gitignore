@@ -1,0 +1,6 @@
+# ----- ARCHIVOS DEL ENTORNO ----
+#Ignorar los archivos tipo objeto .o
+.o
+
+#Ignorar los archivos tipo ejecutable .exe
+.exe
