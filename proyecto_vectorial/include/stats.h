@@ -6,6 +6,19 @@ extern "C" {
 #endif
 
 /*
+ *Objetivo: como viene en lo que adjunto el profesor en los comentarios es un archivo de cabecer de C, el cual declara las firmas de las tres
+ *funciones que se van a escribir en ensamblador
+ *
+ *float sum_array (const float *arr, int n);
+ *void compute_stats (const float *arr, int n, float *mean, float *var, float *min, float *max);
+ *void normalize_array (const float *in, float *out, int n, float mean, float stddev);
+ *
+ *En otras palabras stats.h une la programacion en C (driver.c) y los de emsambladores (.asm). Asimismo el compilador de C lee este .h (stats.h) para
+ *saber como llamar a funciones las cuales no estan programadas en C
+ */
+
+
+/*
  * Firmas de los kernels de computo. Estas MISMAS firmas deben estar
  * implementadas tanto en asm/scalar/stats_scalar.asm como en
  * asm/vector/stats_vector.asm, respetando la convencion de llamada
