@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 /*
- *Objetivo: como viene en lo que adjunto el profesor en los comentarios es un archivo de cabecer de C, el cual declara las firmas de las tres
+ *Objetivo: como viene en lo que adjuntó el profesor en los comentarios es un archivo de cabecera de C, el cual declara las firmas de las tres
  *funciones que se van a escribir en ensamblador
  *
  *float sum_array (const float *arr, int n);
@@ -16,7 +16,6 @@ extern "C" {
  *En otras palabras stats.h une la programacion en C (driver.c) y los de emsambladores (.asm). Asimismo el compilador de C lee este .h (stats.h) para
  *saber como llamar a funciones las cuales no estan programadas en C
  */
-
 
 /*
  * Firmas de los kernels de computo. Estas MISMAS firmas deben estar
@@ -28,6 +27,8 @@ extern "C" {
  *   Flotantes (en orden, aparte): xmm0, xmm1, xmm2, ...
  *   Valor de retorno float: xmm0
  *
+ *  F: En general, asigna registros por tipo de argumento, no por posición absoluta.
+ * 
  * sum_array:
  *   rdi = arr, esi = n              -> retorna la suma en xmm0
  *

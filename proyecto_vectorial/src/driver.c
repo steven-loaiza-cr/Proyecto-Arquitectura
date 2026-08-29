@@ -5,11 +5,14 @@
 #include <math.h>
 #include <time.h>
 
-#include "stats.h"
+#include "stats.h" /* F: este .h es el que contiene las firmas de las funciones escritas en ensamblador.
+                      Se debe incluir para que el compilador de C sepa como llamar a esas funciones. De lo contrario, el compilador de C 
+                      no sabría como llamar a esas funciones y daría error. */
 
 #define VEC_ALIGN 32 /* bytes: alineacion requerida por AVX2 (256 bits) */
 
 static double elapsed_ms(struct timespec start, struct timespec end) {
+    /* F: Esta función calcula el tiempo transcurrido entre incio y fin del programa en milisegundos*/
     return (end.tv_sec - start.tv_sec) * 1000.0 +
            (end.tv_nsec - start.tv_nsec) / 1e6;
 }
@@ -37,6 +40,10 @@ static float *alloc_aligned_floats(size_t count) {
  *   float   arr[n]
  */
 static float *read_input(const char *path, int *out_n) {
+/* F: Esta función lee el archivo de entrada y devuelve un puntero a un arreglo de floats alineado a VEC_ALIGN bytes.
+ * El tamaño n del arreglo se devuelve en out_n. Si hay algún error al leer el archivo,
+ * la función termina el programa con un mensaje de error.
+*/
     FILE *f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "Error: no se pudo abrir '%s'\n", path);
@@ -68,6 +75,12 @@ static float *read_input(const char *path, int *out_n) {
 }
 
 static void write_output(const char *path, const float *arr, int n) {
+/* F: Esta función escribe el arreglo de floats en un archivo de salida en formato binario.
+ * El formato es:
+ *   int32_t n
+ *   float   arr[n]
+ * Si hay algún error al escribir el archivo, la función termina el programa con un mensaje de error.
+*/
     FILE *f = fopen(path, "wb");
     if (!f) {
         fprintf(stderr, "Error: no se pudo crear '%s'\n", path);
@@ -100,6 +113,7 @@ static void write_stats_summary(const char *path, int n, float sum,
 }
 
 static void usage(const char *prog) {
+/* F: Esta función imprime el uso del programa en la salida. */
     fprintf(stderr,
         "Uso: %s <input.dat> <output.dat> [repeticiones]\n"
         "  input.dat      archivo binario de entrada (int32 N + N floats)\n"
@@ -109,6 +123,10 @@ static void usage(const char *prog) {
         prog);
 }
 
+/*
+ * F: Esta es la función principal del programa. Lee los argumentos de la línea de comandos,
+ *    procesa el archivo de entrada, ejecuta las operaciones de computo y escribe el archivo de salida.
+ */
 int main(int argc, char **argv) {
     if (argc < 3) {
         usage(argv[0]);
@@ -130,14 +148,14 @@ int main(int argc, char **argv) {
 
     /* --- Seccion medida: sum_array + compute_stats + normalize_array --- */
     for (int r = 0; r < reps; r++) {
-        clock_gettime(CLOCK_MONOTONIC, &t0);
+        clock_gettime(CLOCK_MONOTONIC, &t0); // F: inicio del programa (start)
 
         sum = sum_array(in, n);
         compute_stats(in, n, &mean, &var, &min, &max);
         float stddev_r = sqrtf(var);
         normalize_array(in, out, n, mean, stddev_r);
 
-        clock_gettime(CLOCK_MONOTONIC, &t1);
+        clock_gettime(CLOCK_MONOTONIC, &t1); // F: final del programa (end)
         total_ms += elapsed_ms(t0, t1);
     }
     double avg_ms = total_ms / reps;

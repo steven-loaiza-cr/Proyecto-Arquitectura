@@ -32,9 +32,9 @@ Esto cambia el roadmap respecto a un proyecto desde cero: no hay semana dedicada
 - Entender completamente el esqueleto entregado (sin modificarlo aún) y dejar la arquitectura documentada antes de escribir una sola línea de ASM nueva.
 
 ### Tareas
-- [ ] Confirmar soporte de AVX2 con `lscpu | grep avx2` y `cat /proc/cpuinfo | grep flags`. Si no hay soporte, decidir de inmediato el fallback a SSE2 y documentarlo.
-- [ ] Verificar versiones instaladas: NASM ≥ 2.15, GCC, GDB ≥ 10, `perf` (paquete `linux-tools`).
-- [ ] Leer `include/stats.h` línea por línea: confirmar qué registro de la ABI System V corresponde a cada parámetro de las 3 funciones, y qué se espera en los casos borde N=0 y σ=0.
+- [x] Confirmar soporte de AVX2 con `lscpu | grep avx2` y `cat /proc/cpuinfo | grep flags`. Si no hay soporte, decidir de inmediato el fallback a SSE2 y documentarlo.
+- [x] Verificar versiones instaladas: NASM ≥ 2.15, GCC, GDB ≥ 10, `perf` (paquete `linux-tools`).
+- [x] Leer `include/stats.h` línea por línea: confirmar qué registro de la ABI System V corresponde a cada parámetro de las 3 funciones, y qué se espera en los casos borde N=0 y σ=0.
 - [ ] Leer `src/driver.c` completo: entender el flujo de lectura/escritura, cómo se reserva memoria alineada, qué mide exactamente `clock_gettime` (solo el kernel, no la E/S) y qué contiene `output.dat.stats.txt`.
 - [ ] Leer y ejecutar `make` para confirmar que el esqueleto compila tal cual viene (con `compute_stats`/`normalize_array` como placeholders).
 - [ ] Estudiar en detalle `sum_array` en `stats_scalar.asm` (patrón de acumulador + condición de salida) y en `stats_vector.asm` (cálculo de `ecx = n & ~7`, bucle de 8, reducción horizontal con `vextractf128`/`vhaddps`, bucle de cierre escalar). Este es el patrón que se reutiliza en las 4 funciones pendientes.
