@@ -1,4 +1,21 @@
-obj/
+#Ignora todos los archivos que se generen en la carpeta obj/
+obj/ 
+
+#Ignora todos los archivos que se generen en la carpeta bin/
 bin/
+
+#Ignora los archivos .dat de datos de prueba que estan en la carpeta data
 data/*.dat
+
+#Ignora los archivos .stats.txt que estan en la carpeta data (estos archivos los generados por el script de Python)
 data/*.stats.txt
+
+# ---- ARCHIVOS DEL ENTORNO ----
+#Se efectuo este cambio por si en algun momento se compila fuera de las carpeta obj/ o los ejecutables dentro de la carpeta bin/
+#Ignorar los archivos tipo objeto .o (se crean al momento de ensamblar el codigo)
+*.o
+
+#Ignorar los archivos tipo ejecutable (se crean al momento de linking del codigo)
+*.exe
+
+
