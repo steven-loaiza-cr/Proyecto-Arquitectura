@@ -18,7 +18,7 @@ static double elapsed_ms(struct timespec start, struct timespec end) {
     /* F: Esta función calcula el tiempo transcurrido entre incio y fin del programa en milisegundos*/
     return (end.tv_sec - start.tv_sec) * 1000.0 +
            (end.tv_nsec - start.tv_nsec) / 1e6;
-
+	}
 
 /* Reserva 'count' floats alineados a VEC_ALIGN bytes (aligned_alloc
  * exige que el tamano solicitado sea multiplo del alineamiento, por
