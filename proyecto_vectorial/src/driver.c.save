@@ -1,4 +1,7 @@
-/*El objetivo de esta programacion es leer los archivos binario de entrada, reservar memorias, medir tiempos e imprimir los resultados*/
+/* Este archivo lo que se encarga  de leer
+
+*/ 
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,22 +11,21 @@
 #include <time.h>
 
 #include "stats.h" /* F: este .h es el que contiene las firmas de las funciones escritas en ensamblador.
-                      Se debe incluir para que el compilador de C sepa como llamar a esas funciones. De lo contrario, el compilador de C
+                      Se debe incluir para que el compilador de C sepa como llamar a esas funciones. De lo contrario, el compilador de C 
                       no sabría como llamar a esas funciones y daría error. */
 
-#define VEC_ALIGN 32 /* bytes: alineacion requerida por AVX2 (256 bits), en este caso lo que hace es la definicion de cuanto va alinear la 
-						memoria, ya que 32 bits = el ancho de un registro (256 bits) */
+#define VEC_ALIGN 32 /* bytes: alineacion requerida por AVX2 (256 bits) */
 
 static double elapsed_ms(struct timespec start, struct timespec end) {
     /* F: Esta función calcula el tiempo transcurrido entre incio y fin del programa en milisegundos*/
     return (end.tv_sec - start.tv_sec) * 1000.0 +
            (end.tv_nsec - start.tv_nsec) / 1e6;
-
+}
 
 /* Reserva 'count' floats alineados a VEC_ALIGN bytes (aligned_alloc
  * exige que el tamano solicitado sea multiplo del alineamiento, por
  * eso se redondea hacia arriba). */
-static float *alloc_aligned_floats(size_t count) { /*reserva la memoria alineada*/
+static float *alloc_aligned_floats(size_t count) {
     size_t bytes = count * sizeof(float);
     size_t padded = ((bytes + VEC_ALIGN - 1) / VEC_ALIGN) * VEC_ALIGN;
     if (padded == 0) padded = VEC_ALIGN;
@@ -83,8 +85,6 @@ static void write_output(const char *path, const float *arr, int n) {
  *   int32_t n
  *   float   arr[n]
  * Si hay algún error al escribir el archivo, la función termina el programa con un mensaje de error.
-
- Asimismo guarda el arreglo normalizado en output.dat (mismo formate del archivo de entrada en binario)
 */
     FILE *f = fopen(path, "wb");
     if (!f) {
@@ -97,12 +97,7 @@ static void write_output(const char *path, const float *arr, int n) {
 }
 
 /* Resumen en texto plano (para que tools/verify_reference.py no
- * tenga que parsear el binario de salida).
-
- Como ya se menciono es un resumen de output.dat y stats.txt con todos los datos estadisticos. Asimismo este es el archivo
- que verify_refence.py lee para comparar contra la referencia en Python. Esto es importante ya que si compute_stats o normalize_array tiene
- algun error, se nota en esta seccion */
-
+ * tenga que parsear el binario de salida). */
 static void write_stats_summary(const char *path, int n, float sum,
                                  float mean, float var, float stddev,
                                  float min, float max, double ms) {
@@ -156,7 +151,7 @@ int main(int argc, char **argv) {
     double total_ms = 0.0;
     struct timespec t0, t1;
 
-    /* --- Seccion medida: sum_array + compute_stats + normalize_array ---, es el bucle de medicion dentro del main ()*/
+    /* --- Seccion medida: sum_array + compute_stats + normalize_array --- */
     for (int r = 0; r < reps; r++) {
         clock_gettime(CLOCK_MONOTONIC, &t0); // F: inicio del programa (start)
 
@@ -190,7 +185,3 @@ int main(int argc, char **argv) {
     free(out);
     return EXIT_SUCCESS;
 }
-
-/*RESUMEN: este archivo es 100% infraestructura (toma en cuenta los Entrada/Salida, timing y la impresion).
-Es importante saber que este archivo no calcula ningun dato estadistico, en pocas palabras el computo real
-pasa por las funciones auxiliares*/
