@@ -15,6 +15,10 @@ extern "C" {
  *
  *En otras palabras stats.h une la programacion en C (driver.c) y los de emsambladores (.asm). Asimismo el compilador de C lee este .h (stats.h) para
  *saber como llamar a funciones las cuales no estan programadas en C
+
+ Por otra parte,la definicion exacta de que debe hacer cada funcion (puesto que indica que registro reibe cada argumento, como se calcula la varianza,
+ que se debe hacer si n == 0 o stddev == 0). NOTA: TENER CUIDADO PORQUE SI EL ENSAMBLADOR NO CUMPLE EXACTAMENTE LO QUE DICE AQUI, EL DRIVER.C VA A LLAMAR
+ MAL A LAS FUNCIONES GENERADAS .ASM Y SE PUEDE INTERPRETAR MAL EL RESULTADO
  */
 
 /*
