@@ -1,5 +1,8 @@
 /*El objetivo de esta programacion es leer los archivos binario de entrada, reservar memorias, medir tiempos e imprimir los resultados*/
 
+/* Asimismo este archivo es el que hace sum = sum_array(in, n); en otras palabras tiene que trabajar directamente con el codigo ensamblador. 
+El driver.c controla directamente de input y output, ademas del timing. NOTA: TODOO EL COMPUTO VA EN ENSAMBLADOR*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
