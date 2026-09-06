@@ -174,7 +174,7 @@ normalize_array:
 	xorps xmm2, xmm2	; xmm2 = 0.0
 	comiss xmm1, xmm2
 	je .na_copy			; stddev == 0
-	xot eax, eax
+	xor eax, eax
 
 .na_loop:
 	cmp eax, edx
