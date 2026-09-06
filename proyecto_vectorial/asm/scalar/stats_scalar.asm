@@ -75,7 +75,7 @@ compute_stats:
 	mov r14, r8  ; min_ptr
 	mov r14, r9  ; max_ptr
 
-	test esi, eso
+	test esi, esi
 	jle .cs_empty
 
 	xorps xmm0, xmm0  ;sum = 0
