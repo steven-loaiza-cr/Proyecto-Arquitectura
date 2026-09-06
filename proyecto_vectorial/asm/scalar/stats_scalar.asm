@@ -179,7 +179,7 @@ normalize_array:
 .na_loop:
 	cmp eax, edx
 	jge .na_done
-	movss xmm3, [rdi + rax*4)
+	movss xmm3, [rdi + rax*4]
 	subss xmm3, xmm0
 	divss xmm3, xmm1
 	movss [rsi + rax*4], xmm3
