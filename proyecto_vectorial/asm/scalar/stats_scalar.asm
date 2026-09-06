@@ -69,16 +69,83 @@ compute_stats:
     push    r14
     push    r15
 
+	;Guardar los 4 punteros de salid
+	mov r12, rdx ; mean_ptr
+	mov r13, rcx ; var_ptr
+	mov r14, r8  ; min_ptr
+	mov r14, r9  ; max_ptr
+
+	test esi, eso
+	jle .cs_empty
+
+	xorps xmm0, xmm0  ;sum = 0
+	movss xmm1, [rdi] ;min = arr[0]
+	movss xmm2, [rdi] ;max = arr[0]
+	xor eax, eax
+
+.cs_pass1:
+	cmp eax, esi
+	jge .cs_pass1_done
+	movss xmm3, [rdi + rax*4]
+	addss xmm0, xmm3
+	comiss xmm3, xmm1
+	jae .cs_chkmax
+	movss xmm1, xmm3
+
+.cs_chkmax:
+	comiss xmm3, xmm2
+	jbe .cs_next1
+	movss xmm2, xmm3
+
+.cs_next1:
+	inc eax
+	jmp .cs_pass1
+
+.cs_pass1_done:
+	cvtsi2ss xmm4, esi
+	divss xmm0, xmm4
+
+
+	;Pasado 2: sum((x-mean)^2)
+	xorps xmm5, xmm5
+	xor eax, eax
+
+.cs_pass2:
+	cmp eax, esi
+	jge .cs_pass2_done
+	movss xmm3, [rdi + rax*4]
+	subss xmm3, xmm0 ;x - mean
+	mulss xmm3, xmm3 ;(x- mean)^2
+	addss xmm5, xmm3
+	inc eax
+	jmp .cs_pass2
+
+.cs_pass2_done:
+	divss xmm5, xmm4  ; var = sum ((x - mean)^2) / n
+	movss [r12], xmm0 ;*mean
+	movss [r13], xmm5 ;*var
+	movss [r14], xmm1 ;*min
+	movss [r15], xmm2 ;*max
+	jmp .cs_ret
     ; TODO: implementar el algoritmo descrito arriba.
 
+.cs_empty:
+	xorps xmm0, xmm0
+	movss [r12], xmm0
+	movss [r13], xmm0
+	movss [r14], xmm0
+	movss [r15], xmm0
+
+
     ; --- placeholder temporal: elimine estas lineas al implementar ---
-    xorps   xmm0, xmm0
-    movss   [rdx], xmm0
-    movss   [rcx], xmm0
-    movss   [r8], xmm0
-    movss   [r9], xmm0
+   ; xorps   xmm0, xmm0
+   ; movss   [rdx], xmm0
+   ; movss   [rcx], xmm0
+   ; movss   [r8], xmm0
+   ; movss   [r9], xmm0
     ; --- fin placeholder ---
 
+.cs_ret:
     pop     r15
     pop     r14
     pop     r13
