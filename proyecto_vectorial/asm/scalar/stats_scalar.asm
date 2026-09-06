@@ -73,7 +73,7 @@ compute_stats:
 	mov r12, rdx ; mean_ptr
 	mov r13, rcx ; var_ptr
 	mov r14, r8  ; min_ptr
-	mov r14, r9  ; max_ptr
+	mov r15, r9  ; max_ptr
 
 	test esi, esi
 	jle .cs_empty
@@ -138,11 +138,11 @@ compute_stats:
 
 
     ; --- placeholder temporal: elimine estas lineas al implementar ---
-   ; xorps   xmm0, xmm0
-   ; movss   [rdx], xmm0
-   ; movss   [rcx], xmm0
-   ; movss   [r8], xmm0
-   ; movss   [r9], xmm0
+	;xorps   xmm0, xmm0
+    ;movss   [rdx], xmm0
+    ;movss   [rcx], xmm0
+    ;movss   [r8], xmm0
+    ;movss   [r9], xmm0
     ; --- fin placeholder ---
 
 .cs_ret:
