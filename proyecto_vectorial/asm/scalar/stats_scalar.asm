@@ -170,4 +170,32 @@ compute_stats:
 ; ---------------------------------------------------------------
 normalize_array:
     ; TODO: implementar
+
+	xorps xmm2, xmm2	; xmm2 = 0.0
+	comiss xmm1, xmm2
+	je .na_copy			; stddev == 0
+	xot eax, eax
+
+.na_loop:
+	cmp eax, edx
+	jge .na_done
+	movss xmm3, [rdi + rax*4)
+	subss xmm3, xmm0
+	divss xmm3, xmm1
+	movss [rsi + rax*4], xmm3
+	inc eax
+	jmp .na_loop
+
+.na_copy:
+	xor eax, eax
+
+.na_copy_loop:
+	cmp eax, edx
+	jge .na_done
+	movss xmm3, [rdi + rax*4]
+	movss [rsi + rax*4], xmm3
+	inc eax
+	jmp .na_copy_loop
+
+.na_done:
     ret
