@@ -32,7 +32,7 @@ sum_array:
 
     mov     ecx, esi
     and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx
+    test    ecx, ecx               ; ecx <= n (prueba casos de ecx menor a 0 o 8)   
     jle     .sum_reduce
 
 .sum_vec_loop:
@@ -88,22 +88,122 @@ sum_array:
 ;      registros YMM.
 ; ---------------------------------------------------------------
 compute_stats:
+    push    rbp
     push    rbx
     push    r12
     push    r13
     push    r14
     push    r15
 
-    ; TODO: implementar el algoritmo descrito arriba.
+    ; rsp%16 == 8 aqui (6 pushes = 48 bytes, no cambia la paridad de entrada)
+    ; F: Hay que alinear la pila a un múltiplo de 16 bytes antes de llamar a sum_array, porque sum_array hace
+    ; push de rbx y luego hace vmovups (que requiere rsp%16==0). Esto para evitar errores de segmentación.
+
 
     ; --- placeholder temporal: elimine estas lineas al implementar ---
-    vxorps  xmm0, xmm0, xmm0
-    vmovss  [rdx], xmm0
-    vmovss  [rcx], xmm0
-    vmovss  [r8], xmm0
-    vmovss  [r9], xmm0
+    ;vxorps  xmm0, xmm0, xmm0
+    ;vmovss  [rdx], xmm0
+    ;vmovss  [rcx], xmm0
+    ;vmovss  [r8], xmm0
+    ;vmovss  [r9], xmm0
     ; --- fin placeholder ---
 
+    mov     r12, rdi            ; arr
+    mov     r13d, esi           ; n
+    mov     rbx, rdx            ; mean*
+    mov     rbp, rcx            ; var*
+    mov     r14, r8             ; min*
+    mov     r15, r9             ; max*
+
+    test    r13d, r13d
+    jle     .cs_empty
+
+    ; --- mean = sum_array(arr, n) / n ---
+    mov     rdi, r12
+    mov     esi, r13d
+    sub     rsp, 8              ; alinea a 16 antes del call
+    call    sum_array
+    add     rsp, 8              ; deshace el ajuste
+
+    cvtsi2ss xmm1, r13d
+    divss   xmm0, xmm1          ; xmm0 = mean
+    movss   [rbx], xmm0         ; guarda mean
+
+    vbroadcastss ymm2, xmm0     ; mean en 8 carriles
+    vbroadcastss ymm4, dword [r12]   ; semilla min = arr[0]
+    vbroadcastss ymm5, dword [r12]   ; semilla max = arr[0]
+    vxorps  ymm3, ymm3, ymm3    ; acumulador sumsq = 0
+
+    xor     eax, eax
+    mov     ecx, r13d
+    and     ecx, ~7
+    test    ecx, ecx
+    jle     .cs_tail
+
+.cs_vec_loop:
+    cmp     eax, ecx
+    jge     .cs_reduce
+    vmovups ymm7, [r12 + rax*4]
+    vsubps  ymm6, ymm7, ymm2
+    vfmadd231ps ymm3, ymm6, ymm6   ; sumsq += (x-mean)^2
+    vminps  ymm4, ymm4, ymm7
+    vmaxps  ymm5, ymm5, ymm7
+    add     eax, 8
+    jmp     .cs_vec_loop
+
+.cs_reduce:
+    ; sumsq: 8 carriles -> escalar (igual que sum_array)
+    vextractf128 xmm8, ymm3, 1
+    vaddps  xmm3, xmm3, xmm8
+    vhaddps xmm3, xmm3, xmm3
+    vhaddps xmm3, xmm3, xmm3
+
+    ; min: 8 carriles -> escalar
+    vextractf128 xmm8, ymm4, 1
+    vminps  xmm4, xmm4, xmm8
+    vmovhlps xmm8, xmm4, xmm4
+    vminps  xmm4, xmm4, xmm8
+    vmovshdup xmm8, xmm4
+    vminps  xmm4, xmm4, xmm8
+
+    ; max: 8 carriles -> escalar
+    vextractf128 xmm8, ymm5, 1
+    vmaxps  xmm5, xmm5, xmm8
+    vmovhlps xmm8, xmm5, xmm5
+    vmaxps  xmm5, xmm5, xmm8
+    vmovshdup xmm8, xmm5
+    vmaxps  xmm5, xmm5, xmm8
+
+.cs_tail:
+    cmp     eax, r13d
+    jge     .cs_store
+    vmovss  xmm9, [r12 + rax*4]
+    vsubss  xmm10, xmm9, xmm0      ; x - mean
+    vmulss  xmm10, xmm10, xmm10
+    vaddss  xmm3, xmm3, xmm10
+    vminss  xmm4, xmm4, xmm9
+    vmaxss  xmm5, xmm5, xmm9
+    inc     eax
+    jmp     .cs_tail
+
+.cs_store:
+    cvtsi2ss xmm1, r13d
+    divss   xmm3, xmm1          ; var = sumsq / n
+    movss   [rbp], xmm3
+    movss   [r14], xmm4
+    movss   [r15], xmm5
+    jmp     .cs_ret
+
+.cs_empty:
+    xorps   xmm0, xmm0
+    movss   [rbx], xmm0
+    movss   [rbp], xmm0
+    movss   [r14], xmm0
+    movss   [r15], xmm0
+
+.cs_ret:
+    vzeroupper
+    pop     rbp
     pop     r15
     pop     r14
     pop     r13
