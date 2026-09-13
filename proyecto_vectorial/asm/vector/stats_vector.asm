@@ -232,5 +232,64 @@ compute_stats:
 ;   - 'vzeroupper' antes del 'ret'.
 ; ---------------------------------------------------------------
 normalize_array:
-    ; TODO: implementar
+    xorps   xmm4, xmm4
+    comiss  xmm1, xmm4
+    je      .na_copy_path
+
+    ; --- camino normal: (x - mean) / stddev ---
+    vbroadcastss ymm2, xmm0        ; mean en 8 carriles
+    vbroadcastss ymm3, xmm1        ; stddev en 8 carriles
+
+    xor     eax, eax
+    mov     ecx, edx
+    and     ecx, ~7
+    test    ecx, ecx
+    jle     .na_tail
+
+.na_vec_loop:
+    cmp     eax, ecx
+    jge     .na_tail
+    vmovaps ymm5, [rdi + rax*4]    ; alineado: base de 32B + offset multiplo de 32
+    vsubps  ymm5, ymm5, ymm2
+    vdivps  ymm5, ymm5, ymm3
+    vmovaps [rsi + rax*4], ymm5
+    add     eax, 8
+    jmp     .na_vec_loop
+
+.na_tail:
+    cmp     eax, edx
+    jge     .na_done
+    vmovss  xmm6, [rdi + rax*4]
+    subss   xmm6, xmm0
+    divss   xmm6, xmm1
+    vmovss  [rsi + rax*4], xmm6
+    inc     eax
+    jmp     .na_tail
+
+.na_done:
+    vzeroupper
     ret
+
+.na_copy_path:
+    ; --- stddev == 0: copiar sin dividir ---
+    xor     eax, eax
+    mov     ecx, edx
+    and     ecx, ~7
+    test    ecx, ecx
+    jle     .na_copy_tail
+
+.na_copy_vec_loop:
+    cmp     eax, ecx
+    jge     .na_copy_tail
+    vmovaps ymm5, [rdi + rax*4]
+    vmovaps [rsi + rax*4], ymm5
+    add     eax, 8
+    jmp     .na_copy_vec_loop
+
+.na_copy_tail:
+    cmp     eax, edx
+    jge     .na_done
+    vmovss  xmm6, [rdi + rax*4]
+    vmovss  [rsi + rax*4], xmm6
+    inc     eax
+    jmp     .na_copy_tail
