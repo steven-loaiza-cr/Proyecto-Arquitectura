@@ -26,19 +26,28 @@
 ; y normalize_array.
 ; ---------------------------------------------------------------
 sum_array:
-    xor     eax, eax           ; eax = i = 0
-    xorps   xmm0, xmm0         ; xmm0 = acumulador = 0.0
+    xor     eax, eax           ; eax = i = 0, El metodo de xor de un registro consigo mismo, es la forma mas directa para ponerele un valor de 0
+    xorps   xmm0, xmm0         ; xmm0 = acumulador = 0.0, el registro xmm0 va hacer el acumulador para la suma
+    						   ; Asimismo la instruccion xorps limpia los 128 bits del registro XMM
 
 .sum_loop:
-    cmp     eax, esi
-    jge     .sum_done
-    movss   xmm1, [rdi + rax*4]
-    addss   xmm0, xmm1
-    inc     eax
-    jmp     .sum_loop
+    cmp     eax, esi              ;Compara el indice i (eax) contra n (que esta en el registro esi)
+    jge     .sum_done			  ;Verifica el salto, si i >= n ya se recorrio todo el arreglo y se sale del bucle
 
+	;En el registro xxm1 se guarda la direccion del arreglo en cuestion para ir sumandolo
+    movss   xmm1, [rdi + rax*4]	  ;El registro rdi funciona como un puntero que almacena el inicio del arreglo
+    							  ;EL registro rax es un registro de 64 bits y eax es su mitad baja (0-31 bits), ya se sabe que eax es el contador i
+    							  ;La direccion se obtiene a partir de rdi (puntero al inicio del arreglo) + rax*4, es decir la base del arreglo
+    							  ;mas i posiciones, cada posicion es de 4 bytes, por esta razon se debe hacer el rax*4, porque cada float ocupa 4 bytes
+
+	;En este punto se efectua la suma
+    addss   xmm0, xmm1		;Se suma el acumulador (registro xmm0) con lo que se esta analizando en un posicion del arreglo (registro xmm1 = arreglo[i])
+    inc     eax				;Se suma +1 al contador -> eax=i++
+    jmp     .sum_loop		;Se vuelve a repetir el loop de la suma
+
+;Funcion para salirse de la sumatoria
 .sum_done:
-    ret
+    ret		;El resultado ya esta en el registro xmm0, se retorna ese valor de float al sistema
 
 ; ---------------------------------------------------------------
 ; void compute_stats(const float *arr, int n,
