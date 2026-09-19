@@ -1,7 +1,7 @@
 ; =============================================================
 ; stats_scalar.asm
 ; Version ESCALAR (referencia) de los kernels de computo.
-; Estudiantes: STeven Loaiza y Felipe Sanchez 
+; Estudiantes: Steven Loaiza y Felipe Sanchez
 ;
 ; Convencion de llamada: System V AMD64 ABI
 ;   enteros/punteros: rdi, rsi, rdx, rcx, r8, r9
