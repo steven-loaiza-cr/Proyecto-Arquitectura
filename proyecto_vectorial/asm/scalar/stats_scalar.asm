@@ -174,29 +174,29 @@ normalize_array:
 
 	xorps xmm2, xmm2	; xmm2 = 0.0
 	comiss xmm1, xmm2
-	je .na_copy			; stddev == 0
+	je .na_copiar_directo			; stddev == 0
 	xor eax, eax
 
-.na_loop:
+.na_bucle_normalizacion:
 	cmp eax, edx
-	jge .na_done
+	jge .na_fin
 	movss xmm3, [rdi + rax*4]
 	subss xmm3, xmm0
 	divss xmm3, xmm1
 	movss [rsi + rax*4], xmm3
 	inc eax
-	jmp .na_loop
+	jmp .na_bucle_normalizacion
 
-.na_copy:
+.na_copiar_directo:
 	xor eax, eax
 
-.na_copy_loop:
+.na_bucle_copia:
 	cmp eax, edx
-	jge .na_done
+	jge .na_fin
 	movss xmm3, [rdi + rax*4]
 	movss [rsi + rax*4], xmm3
 	inc eax
-	jmp .na_copy_loop
+	jmp .na_bucle_copia
 
-.na_done:
+.na_fin:
     ret
