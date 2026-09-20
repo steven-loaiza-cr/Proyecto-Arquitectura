@@ -32,7 +32,7 @@ sum_array:
 
     mov     ecx, esi
     and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx               ; ecx <= n (prueba casos de ecx menor a 0 o 8)   
+    test    ecx, ecx               ; ecx <= n (prueba casos de ecx menor a 0 o 8)
     jle     .sum_reduce
 
 .sum_vec_loop:
@@ -175,7 +175,7 @@ compute_stats:
     vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre los 2 carriles bajos de xmm5 y los 2 carriles bajos de xmm8
 
 .cs_tail: ; Reducción de cola escalar para el remanente (n % 8)
-    cmp     eax, r13d          
+    cmp     eax, r13d
     jge     .cs_store          ; si i >= n, salta a almacenar resultados, si no continua con la reducción de cola
     vmovss  xmm9, [r12 + rax*4]  ; xmm9 = arr[i]
     vsubss  xmm10, xmm9, xmm0      ; x - mean
@@ -203,13 +203,13 @@ compute_stats:
 
 .cs_ret:
     vzeroupper                ; evita penalizacion de transicion AVX/SSE
-    pop     rbp               ; pop de los registros callee-saved
-    pop     r15
+    pop     r15               ; pop de los registros callee-saved
     pop     r14
     pop     r13
     pop     r12
     pop     rbx
-    ret                      ; Fin de la función 
+    pop     rbp
+    ret                      ; Fin de la función
 
 ; ---------------------------------------------------------------
 ; void normalize_array(const float *in, float *out, int n,
@@ -242,11 +242,11 @@ normalize_array:
     xor     eax, eax               ; eax = i = 0
     mov     ecx, edx               ; ecx = n
     and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx 
+    test    ecx, ecx
     jle     .na_tail               ; si ecx <= n (prueba casos de ecx menor a 0 o 8) salta al bucle escalar de cierre
 
-.na_vec_loop: ; bucle vectorial de 8 en 8 
-    cmp     eax, ecx               
+.na_vec_loop: ; bucle vectorial de 8 en 8
+    cmp     eax, ecx
     jge     .na_tail               ; si i >= n redondeado hacia abajo (ecx = n & ~7) salto al bucle escalar de cierre
     vmovaps ymm5, [rdi + rax*4]    ; ymm5 = in[i:i+7] (carga 8 floats)
     vsubps  ymm5, ymm5, ymm2       ; ymm5 = in[i:i+7] - mean
@@ -256,7 +256,7 @@ normalize_array:
     jmp     .na_vec_loop
 
 .na_tail: ; bucle escalar de cierre para el remanente (n % 8)
-    cmp     eax, edx               
+    cmp     eax, edx
     jge     .na_done               ; si i>=n, salto al protocolo de cierre
     vmovss  xmm6, [rdi + rax*4]    ; xmm6 = in[i]
     subss   xmm6, xmm0             ; xmm6 = in[i] - mean
@@ -274,11 +274,11 @@ normalize_array:
     xor     eax, eax           ; eax = i = 0
     mov     ecx, edx           ; ecx = n
     and     ecx, ~7            ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx           
+    test    ecx, ecx
     jle     .na_copy_tail      ;  ecx <= n (prueba casos de ecx menor a 0 o 8)
 
 .na_copy_vec_loop: ; bucle vectorial de 8 en 8 para copiar
-    cmp     eax, ecx           
+    cmp     eax, ecx
     jge     .na_copy_tail      ; si i >= n redondeado hacia abajo (ecx = n & ~7) salta a la copia escalar de cierre 
     vmovaps ymm5, [rdi + rax*4] ; ymm5 = in[i:i+7] (carga 8 floats)
     vmovaps [rsi + rax*4], ymm5 ; out[i:i+7] = in[i:i+7] (guarda 8 floats)
