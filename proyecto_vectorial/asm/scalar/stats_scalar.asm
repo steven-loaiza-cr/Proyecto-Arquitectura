@@ -226,33 +226,55 @@ compute_stats:
 ; en cada iteracion desde una copia guardada en la pila.
 ; ---------------------------------------------------------------
 normalize_array:
-    ; TODO: implementar
 
-	xorps xmm2, xmm2	; xmm2 = 0.0
-	comiss xmm1, xmm2
-	je .na_copiar_directo			; stddev == 0
-	xor eax, eax
+;Objetivo: tomar un arreglo de datos (arreglo_in) y produce un segundo arreglo (arreglo_out)
+;La finalidad es que cada valor quede normalizado estadisticamente, es decir que el arreglo_out tenga una media de 0 y una desviacion estadar de 1
+;Formula -> arreglo_out[i] = (arreglo_in[i] - media) / desviacion estandar
 
-.na_bucle_normalizacion:
-	cmp eax, edx
-	jge .na_fin
-	movss xmm3, [rdi + rax*4]
-	subss xmm3, xmm0
-	divss xmm3, xmm1
-	movss [rsi + rax*4], xmm3
-	inc eax
-	jmp .na_bucle_normalizacion
+;Nota: la media (se calculo previamente en el compute_stats) y la desviacion estandar (la genero el driver.c)
+; -------------------------- Verificacion del caso borde (stddev == 0) -------------------------------------------------------------
+;IMPORTANTE: stddev es la abreviacion de standard deviation por eso es la desviacion estandar y ya la entrega el driver.c
+;desviacion estandar (stddev) = (varianza)^(1/2)
 
-.na_copiar_directo:
-	xor eax, eax
+	xorps xmm2, xmm2				;Pone los bits de xmm2 en cero (0) ->	xmm2 = 0.0
+	comiss xmm1, xmm2				;Compara los primeros 32 bits de xmm1 y xmm2 y actualiza las flags
+	je .na_copiar_directo			;EL salto je verifica la flag y solamente salta si stddev == 0, en otras palabras cuando
+									;xmm1 (desviacion estandar que se calcula  desde el driver.c) == xmm2 (xmm2 en este punto es cero)
+									; -> xmm1-xmm2 = 0 (stddev debe ser cero, puesto que sino la formula queda una division por cero,
+									;una indeterminacion -> (arreglo[i] - media)/ desviacion estandar (stddev)
+	xor eax, eax					;Pone los bits del registro eax en cero (0) bits (eax -> indice, por eso i = 0)
 
-.na_bucle_copia:
-	cmp eax, edx
-	jge .na_fin
-	movss xmm3, [rdi + rax*4]
-	movss [rsi + rax*4], xmm3
-	inc eax
-	jmp .na_bucle_copia
+;--------------------------- Blucle Principal de la Normalizacion -------------------------------------------------------------------
+.na_bucle_normalizacion:			;label
+	cmp eax, edx					;edx son los primeros 32 bits del registro rdx y este registro (rdx) contiene el tamano del arreglo (n)
+									;cmp resta internamente eax - edx (indice [i] - tamano del arreglo [n]) y actualiza las flags
+	jge .na_fin						;El salto jge verifica las flags y realiza el salto si i >= n (eax >= edx). Esto se hace cuando ya se evaluo todo el
+									;arreglo. Se sale del while
+	movss xmm3, [rdi + rax*4]		;El registro rdi contiene el puntero al inicio del arreglo de datos, despues rax es el registro completo de eax que
+									;contiene el indice (i) y el mismo se debe multiplicar por 4 porque cada dato float ocupa los 4 bytes en memoria,
+									;para ir desplazandose por los diferentes datos del arreglo de datos.
+									;Finalmente se guarda el dato que esta en  indice i en el arreglo,  en el registro xmm3 -> xmm3 = [rdi + rax x 4]
+	subss xmm3, xmm0				;Se efectua la operacion xmm3 = arreglo[i](xmm3) - media(xmm0) -> xmm3 = xmm3 - xmm0
+	divss xmm3, xmm1				;Se efectua la operacion xmm3 = (arreglo[i] - media)(xmm3) / desviacion estandar (xmm1)
+	movss [rsi + rax*4], xmm3		;El registro rsi contiene el puntero al arreglo de salida
+									;[rsi + rax x 4] -> calcula la direccion de memoria del arreglo de salida (out[i]) usando el mismo indice
+									;Ya se calcula el resultado normaliza out[i] = (arreglo[i] - media)/desviacion estandar
+	inc eax							;Incremente el indice -> eax = eax + 1 (indice)
+	jmp .na_bucle_normalizacion		;Se vuelve a ejecutar el bucle o while de normalizacion (Siempre salta)
 
-.na_fin:
-    ret
+;-------------------------- Caso Especial - STDDEV == 0 -------------------------------------------------------------------------------------
+.na_copiar_directo:		;label
+	xor eax, eax		;Pone al indice en cero (0) bits -> i = 0 (reinicia el indice)
+
+.na_bucle_copia:				;label
+	cmp eax, edx				;Compara el indice (eax) contra el tamano del arreglo (n) y actualiza las flags
+	jge .na_fin					;El salto jge solo se hace cuando i(eax) >= n(edx), En este punto termino de evaluar todo el arreglo
+	movss xmm3, [rdi + rax*4]	;En este linea sea hace lo mismo que se hizo en el bucle de normalizacion
+								;xmm3 = arreglo_in[i] ([rdi + rax x 4])
+	movss [rsi + rax*4], xmm3	;Escribe en el arreglo de out lo mismo que el arreglo de in
+								;arreglo_out[i] = arreglo_in[i] -> INDICACION DEL ENUNCIADOO para el caso bor stddev == 0
+	inc eax						;Incremente el indice (i) -> eax = eax + 1
+	jmp .na_bucle_copia			;Vuelve a ejecutar el while
+
+.na_fin:	;label
+    ret		;instruccion de retorno al driver.c
