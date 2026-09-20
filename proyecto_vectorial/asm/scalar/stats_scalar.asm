@@ -73,11 +73,32 @@ sum_array:
 ;   5) No olvide restaurar los registros callee-saved en el epilogo.
 ; ---------------------------------------------------------------
 compute_stats:
+
+;En este punto se guardan  los callee-saved que son los registros rbx/r12-r15;
+;ya que la ABI System V (es la conveccion que utiliza esta programacion para definir
+;la comunicacion entre el codigo en C (driver.c) y el codigo de emsamblador (stats_scalar.asm),
+;obliga a que si la funcion los usa, debe devolverlos intactos al driver.c. En pocas palabras para
+;que driver.c no lea los registros equivocados y el resultado no sea basura)
+
+;En resumen: se guardan 5 registros por que la funcion los va a usar estos registros mas adelante (r12-r15
+;estos con la finalidad de ser punteros de salida) y en mi caso no utilizo rbx pero de igual manera debo devolverlo
+
     push    rbx
     push    r12
     push    r13
     push    r14
     push    r15
+
+;-----------------------------------------------------------------------------------------------------------------------------
+;En esta seccion se guarda y copian los valores de los registros rdx, rcx, r8 y r9 (ya que estos son caller-saved), ya que si
+;en algun momento otra funcion llamara a estos registros (por ejemplo: sum_array o normalize_array) su contenido podria variar
+;y destruirse. Por esta razon se efectuan copias a los registros callee-saved (r12-r15).
+
+;Importante rdx, rcx, r8 y r9 son el 3, 4, 5 y 6 argumento respectivamente de la funcion segun el ABI
+;rdx -> mean
+;rcx -> varianza
+;r8 -> minimo
+;r9 -> maximo
 
 	;Guardar los 4 punteros de salid
 	mov r12, rdx ; mean_ptr
@@ -85,83 +106,109 @@ compute_stats:
 	mov r14, r8  ; min_ptr
 	mov r15, r9  ; max_ptr
 
-	test esi, esi
-	jle .cs_arreglo_vacio
+	;------------ Verificacion del primer caso borde - ARREGLO VACIO n<=0 ------------------------------------------------------
+	;esi es el registro que contiene a n (tamano del arreglo)
 
-	xorps xmm0, xmm0  ;sum = 0
-	movss xmm1, [rdi] ;min = arr[0]
-	movss xmm2, [rdi] ;max = arr[0]
-	xor eax, eax
-
-.cs_bucle_suma_min_max:
-	cmp eax, esi
-	jge .cs_fin_suma_min_max
-	movss xmm3, [rdi + rax*4]
-	addss xmm0, xmm3
-	comiss xmm3, xmm1
-	jae .cs_verificar_max
-	movss xmm1, xmm3
-
-.cs_verificar_max:
-	comiss xmm3, xmm2
-	jbe .cs_siguiente_elemento
-	movss xmm2, xmm3
-
-.cs_siguiente_elemento:
-	inc eax
-	jmp .cs_bucle_suma_min_max
-
-.cs_fin_suma_min_max:
-	cvtsi2ss xmm4, esi
-	divss xmm0, xmm4
+	test esi, esi			;La instruccion test ejecuta una AND interna sin guardar el resultado, solamente actualiza las banderas
+	jle .cs_arreglo_vacio	;La instruccion jle verifica las banderas, entonces si n <= 0, no ejecuta ninguna operacion y salta a la
+							;seccion del arreglo vacio (.cs_arreglo_vacio)
 
 
-	;Pasado 2: sum((x-mean)^2)
-	xorps xmm5, xmm5
-	xor eax, eax
+	;----------- Inicializacion antes de efectuar el primer bucle o while ------------------------------------------------------
+	xorps xmm0, xmm0  ;sum = 0			;La instruccion xorps pone en cero los 128 bits de xmm0, puesto que el registro xmm0 sera el acumulador
+	movss xmm1, [rdi] ;min = arr[0]		;Copia el primer elemento del arreglo que se obtiene con [rdi] (es como arreglo[0]), ya que el registro
+										;rdi es la direccion base del arreglo. Entonces copia en el registro xmm1 la primer direccion del arreglo rdi
+	movss xmm2, [rdi] ;max = arr[0]     ;Hace lo mismo que la anterior linea, pero en este caso el registro xmm2 va a contener el maximo al final de
+										;la ejecucion pero se debe inicializar en el primer arreglo por eso xmm2 = [rdi] (es lo mismo que arreglo[0])
+	xor eax, eax						;Pone los bits de eax en cero (0), para que funcione como el indice i=0 -> eax=0
 
-.cs_bucle_varianza:
-	cmp eax, esi
-	jge .cs_fin_varianza
-	movss xmm3, [rdi + rax*4]
-	subss xmm3, xmm0 ;x - mean
-	mulss xmm3, xmm3 ;(x- mean)^2
-	addss xmm5, xmm3
-	inc eax
-	jmp .cs_bucle_varianza
 
+;-------------------- Bucle #1 - Suma + Minimo + Maximo ---------------------------------------------------------------------------------------------
+;Nota: yo se que esta funcion ya estaba implementada, pero en este momento se me habia fue y por eso la programe
+
+.cs_bucle_suma_min_max:			;label para llamar el bucle
+	cmp eax, esi				;La instruccion cmp resta internamente eax-esi (no guarda el resultado) pero si actualiza las flags.
+	jge .cs_fin_suma_min_max	;EL salto jge verifica la flag (i >= n) ya se recorrio el arreglo y se sale del bucle
+	movss xmm3, [rdi + rax*4]	;Obtiene y carga el dato de la posicion i (indice) -> [rdi + rax*4] en el registro xmm3
+	addss xmm0, xmm3			;Va sumando el dato que contiene el registro xmm3 con lo que hay en el acumulador xmm1 y lo sobreescribe en xmm1 (acumulador)
+	comiss xmm3, xmm1			;La instruccion comiss compara el valor actual del arreglo xmm3 contra el minimo que esta en el registro xmm1. Hace
+								;internamente xmm3 - xmm1 y actualiza las flags
+	jae .cs_verificar_max		;El salto jae, verifica las flags (arreglo[i]-xmm3 >= min_actual-xmm1)- se salta a verificar_max porque el dato en la
+								;posicion arreglo[i]-xmm3 puede ser un nuevo maximo
+	movss xmm1, xmm3			;Si el salto no se efectua significa que (arreglo[i]-xmm3 < min_actual-xmm1, entonce se debe actualizar el minimo que
+								;se encuentra en xmm1 por eso xmm1 = xmm3
+
+; ---------------------------- Verificar el posible nuevo maximo --------------------------------------------------------------------------------------
+
+.cs_verificar_max:				;label
+	comiss xmm3, xmm2			;Compara los datos de los registros xmm3 y xmm2 y actualiza las flags
+	jbe .cs_siguiente_elemento	;El salto jbe evalua las flags (se efectua si xmm3 <= xmm2). Aqui  detecta si tengo un nuevo maximo o no
+	movss xmm2, xmm3			;Si tengo un nuevo maximo (xmm3 > xmm2), actualiza el maximo en el registro xmm2 -> xmm2 = xmm3
+
+;----------------------------- Verificar el proximo elemento del array --------------------------------------------------------------------------------
+.cs_siguiente_elemento:			;label
+	inc eax						;incrementa el indice -> eax = eax + 1 -> i+
+	jmp .cs_bucle_suma_min_max	;Vuelve al label bucle_suma_min_max para volver a realizar el siguiente elemento
+
+;----------------------------- Calculo de la media ---------------------------------------------------------------------------------------------------
+;En este punto se sabe que xmm0 (acumulador) tiene la suma total de todos los elementos y que el registro xmm1 tiene el elemento minimo y el registro
+;xmm2 tiene el elemento maximo
+
+.cs_fin_suma_min_max:			;label
+	cvtsi2ss xmm4, esi			;cvtsi2ss (convert scalar integer to scalar single), lo que hace es que convierte el entero n (tamano de arreglo guardado
+								;en el registro esi) a una representacion flotante y lo almacena en el registro xmm4 -> xmm4 = esi(n)
+
+	;Media = Acumulador / total de elementos del arreglo
+	divss xmm0, xmm4			;Lo que hace es lo siguiente xmm0 = xmm0 (acumulador - suma total) / xmm4 (tamano del arreglo), al final sobreescribe en xmm0
+
+;----------------------------- Calculo de la varianza -------------------------------------------------------------------------------------------------
+;Despues de obtener la media, se continua con el calculo de la varianza
+
+	;Preparacion previa para iniciar el bluque o while #2
+	xorps xmm5, xmm5			;Pone en cero (0) los bits del nuevo acumulador xmm5 para la suma de los cuadrados de las diferencias (x-mean)^2
+	xor eax, eax				;Reinicia el indice -> i=0
+
+;---------------------------- Bucle #2 - Variana -------------------------------------------------------------------------------------------------------
+.cs_bucle_varianza:					;label
+	cmp eax, esi					;resta internamente eax - esi, pero no guarda el dato, pero si actualiza las flags
+	jge .cs_fin_varianza			;El salto jge verifica las flags (realiza el salto si eax >= esi -> i >= n), osea si ya se completo todo el arreglo
+	movss xmm3, [rdi + rax*4]		;Carga arreglo[i] en el registro xmm3  -> xmm3 = arreglo[i] ([rdi+rax*4])
+	subss xmm3, xmm0 ;x - mean		;xmm3 = arreglo[i] (xmm3) - media (xmm0) - Operacion intermedia para la suma de los cuadrados
+	mulss xmm3, xmm3 ;(x- mean)^2   ;xmm3 = xmm3 x xmm3 -> (arreglo[i] - media)^2
+	addss xmm5, xmm3				;Se actualiza el acumulador xmm5 = xmm5 + xmm3 -> xmm5 = xmm5 + (arreglo[i] - media)^2
+	inc eax							;Se incrementa el indice -> i=++  -> eax = eax + 1
+	jmp .cs_bucle_varianza			;Vuelve a ejecutar el bucle "bucle_varianza'
+
+;--------------------------- FInalizacion del bucle #2 -------------------------------------------------------------------------------------------------
 .cs_fin_varianza:
-	divss xmm5, xmm4  ; var = sum ((x - mean)^2) / n
-	movss [r12], xmm0 ;*mean
-	movss [r13], xmm5 ;*var
-	movss [r14], xmm1 ;*min
-	movss [r15], xmm2 ;*max
-	jmp .cs_retorno
+	;Varianza = suma de la operacion (arreglo[i] - media)^2 / tamano del arreglo (n)
+	divss xmm5, xmm4  ;Se calcula la varianza sabiendo que xmm5 = (arreglo[i] - media)^2 y que xmm4 (tamano del arreglo), por eso se tiene que xmm5 = xmm5/xmm4
+	movss [r12], xmm0 ;*mean -> Se actualiza el puntero r12 por el dato de la media (xmm0)
+	movss [r13], xmm5 ;*var -> Se actualiza el puntero r13 por el dato de la varianza (xmm5)
+	movss [r14], xmm1 ;*min -> Se actualiza el puntero r14 por el dato del minimo dato del arreglo (xmm1)
+	movss [r15], xmm2 ;*max -> Se actualiza el puntero r15 por el dato del maximo dato del arreglo (xmm2)
+	jmp .cs_retorno   ;Se salta directamen al final del algoritmo porque ya estan listos los punteros
     ; TODO: implementar el algoritmo descrito arriba.
 
-.cs_arreglo_vacio:
-	xorps xmm0, xmm0
+;----------------------- Caso Borde: ARREGLO VACIO n <= 0 -------------------------------------------------------------------------------------------------
+.cs_arreglo_vacio:		;label
+	xorps xmm0, xmm0	;Coloca el acumulador en cero (0) bits -> xmm0 = 0
+	;Coloca los puntero r12, r13, r14 y r15 con el dato igual a cero (caso borde)
 	movss [r12], xmm0
 	movss [r13], xmm0
 	movss [r14], xmm0
 	movss [r15], xmm0
 
-
-    ; --- placeholder temporal: elimine estas lineas al implementar ---
-	;xorps   xmm0, xmm0
-    ;movss   [rdx], xmm0
-    ;movss   [rcx], xmm0
-    ;movss   [r8], xmm0
-    ;movss   [r9], xmm0
-    ; --- fin placeholder ---
-
-.cs_retorno:
+; ------------------- Retorno ---------------------------------------------------------------------------------------------------------------------------
+.cs_retorno:		;label
+	;Se restauran los registros callee-saved en orden inverso al de los push del principio (r15, r14, r13, r12 y rbx), como exigen el ABI al
+	;desenrollar la pila en cuestion
     pop     r15
     pop     r14
     pop     r13
     pop     r12
     pop     rbx
-    ret
+    ret				;finaliza el algortimo sacando de la pula la direccion de retorno
 
 ; ---------------------------------------------------------------
 ; void normalize_array(const float *in, float *out, int n,
