@@ -71,7 +71,7 @@ sum_array:
 ;
 ; TODO (estudiante):
 ;   1) mean = suma(arr) / n (puede llamar a sum_array; recuerde
-;      guardar arr/n/mean*/var*/min*/max* en registros callee-saved
+;      guardar arr/n/mean*/var*/min*/max* en registros caller-saved
 ;      antes, porque la llamada destruye registros caller-saved).
 ;   2) Segunda pasada VECTORIZADA para acumular sum((x-mean)^2):
 ;        - "broadcast" de mean a los 8 carriles con vbroadcastss.
@@ -90,9 +90,8 @@ sum_array:
 ; ---------------------------------------------------------------
 compute_stats:
 ;----------------------------------------------------------------
-; Se guardan registros caller-saved que se van a usar en la funcion dado que se llama sum_array, la cual es 
-; una función que destruye estos registros.
-; Esto se hace con el objetivo de que el driver no lea los registros equivocados y que no se pierda información.
+; Se guardan registros callee-saved que se van a usar en la funcion dado que se llama sum_array (la llamada destruye registros caller_saved)
+; Esto se hace para que el driver no lea los registros equivocados y que no se pierda información.
 
     push    rbp
     push    rbx
@@ -100,7 +99,7 @@ compute_stats:
     push    r13
     push    r14
     push    r15
-; ----------------------------------------------------------------
+	
 ; En esta sección, se guardan los argumentos de la función en los registros callee-saved para poder
 ; llamar a sum_array sin perder los valores de los argumentos. Además de copiar el contenido
 ; de los registros para evitar que se pierdan datos en caso de que otras funciones llamen a sum_array o compute_stats.
@@ -118,48 +117,56 @@ compute_stats:
     mov     rbp, rcx            ; var*
     mov     r14, r8             ; min*
     mov     r15, r9             ; max*
-;-----------------------------------------------------------------
+
 ;------- Verificación del caso borde (n = 0)----------------------
     test    r13d, r13d                     ; La instrucción test verifica si n es igual a 0 por medio de una AND y levanta la bandera de salto interna. 
     jle     .cs_vaciar_registros           ; jle verifica esta bandera. Si n <= 0, salta a la sección de vaciado de registros para evitar una división por cero.
                                            ; Luego de vaciar los registros, se salta a la sección de cierre de la función para poner los registros de salida en 0.0 y ejecutar 
                                            ; protocolo de cierre de la función.
                                            ; Si n>0, se continúa con la ejecución normal de la función.
-;------------------------------------------------------------------
+										   
 ; ------- Cálculo de mean = sum_array(arr, n) / n -----------------
-; 
-    mov     rdi, r12
-    mov     esi, r13d
-    sub     rsp, 8              ; alinea a 16 antes del call
-    call    sum_array
-    add     rsp, 8              ; deshace el ajuste
+    mov     rdi, r12            ; Se copia el contenido de los registros callee-saved 
+    mov     esi, r13d           ; a sus respectivos registros
+    sub     rsp, 8              ; En la entrada rsp es exactamente igual a 8 mod 16, y cada push
+    call    sum_array           ; resta 8. Con los 6 pushes rsp no está alineado a 16 bytes, sino desplazado
+    add     rsp, 8              ; por 8 bytes, por lo que se resta 8 a rsp antes de la llamada de sum array 
+	                            ; para que rsp esté alineado. Luego de esta llamada se le suma 8 para dejar rsp
+								; como estaba antes de la llamada de sum_array.
 
-    cvtsi2ss xmm1, r13d
-    divss   xmm0, xmm1          ; xmm0 = mean
-    movss   [rbx], xmm0         ; guarda mean
+    cvtsi2ss xmm1, r13d         ; Con la instrucción cvtsi2ss convierto el contenido de r13d (n) a un valor 
+	                            ; escalar de punto flotante con presición simple. Por lo tanto: xmm1 = n (flotante)
+    divss   xmm0, xmm1          ; Calculo la media después de la llamada de sum array xmm0 = xmm0/n
+    movss   [rbx], xmm0         ; Guarda mean en el puntero a rbx*
 
-    vbroadcastss ymm2, xmm0     ; mean en 8 carriles
-    vbroadcastss ymm4, dword [r12]   ; semilla min = arr[0]
+    vbroadcastss ymm2, xmm0          ; Con la instrucción vbroadcastss replico el contenido de xmm0 (mean) a un registro YMM de 8 carriles
+    vbroadcastss ymm4, dword [r12]   ; Escribe el contenido de la dirección de memoria de 12 (arr). En este caso semilla min = arr[0]
     vbroadcastss ymm5, dword [r12]   ; semilla max = arr[0]
-    vxorps  ymm3, ymm3, ymm3    ; acumulador sumsq = 0
+    vxorps  ymm3, ymm3, ymm3         ; Xor en ymm3 para utilizarlo como acumulador más adelante (sumsq = 0).
+	
+;----- Inicialización antes de los bucles (vectorial o cola escalar) --------------------
+    xor     eax, eax                        ; Inicializo el contador en 0 utilizando xor con sí mismo (eax = i = 0)
+    mov     ecx, r13d                       ; Cargo el valor de n a ecx (ecx = 0)
+    and     ecx, ~7                         ; Redondeo el valor de ecx hacia abajo y que sea múltipo de 8 (ecx = n&~7)
+    test    ecx, ecx                        ; Utilizando la instrucción test, verifico si ecx es igual a 0 utilizando una AND interna (similar al pasado).
+    jle     .cs_reduccion_cola_escalar      ; jle verifica la bandera de salto interna y salta a la reducción de cola escalar si ecx <= n. Esto prueba los 
+	                                        ; casos en que ecx es menor a 0 o 8. Si ecx >  n entonces entra al bucle vectorial y continua el flujo normal.
 
-    xor     eax, eax            ; i = 0
-    mov     ecx, r13d           ; ecx = n
-    and     ecx, ~7             ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx            ; ecx <= n (prueba casos de ecx menor a 0 o 8)
-    jle     .cs_reduccion_cola_escalar            ; si ecx <= 0, salta al bucle escalar de cierre, si no sigue con el bucle vectorial
-
-.cs_bucle_vectorial: ; Bucle vectorial
-    cmp     eax, ecx            ; compara i con n redondeado hacia abajo
-    jge     .cs_reduccion_horizontal          ; si i >= n redondeado hacia abajo, salta a la reducción horizontal
-    vmovups ymm7, [r12 + rax*4] ; ymm7 = arr[i:i+7] (carga 8 floats)
-    vsubps  ymm6, ymm7, ymm2    ; x - mean
-    vfmadd231ps ymm3, ymm6, ymm6   ; sumsq += (x-mean)^2
-    vminps  ymm4, ymm4, ymm7      ; min = min(min, x)
-    vmaxps  ymm5, ymm5, ymm7      ; max = max(max, x)
-    add     eax, 8                ; i = i+8
-    jmp     .cs_bucle_vectorial          ; salta de nuevo al incio del bucle vectorial
-
+; ---- Bucle vectorial ------------------------------------------------------------------
+.cs_bucle_vectorial: 
+    cmp     eax, ecx                          ; Se compara eax (i) con ecx (n&~7). Si eax >= ecx entonces salta a la reducción horizontal de los registros
+    jge     .cs_reduccion_horizontal          ; vectoriales. Si no, entonces continua con el calculo de la media, minimo y máximo vectorial. 
+    vmovups ymm7, [r12 + rax*4]               ; Con vmovups se cargan 8 flotantes (unaligned) del contenido de memoria de r12 (arr). Este será nuestro x. (ymm7 = x)
+    vsubps  ymm6, ymm7, ymm2                  ; La instrucción vsubps realiza la operación x - mean y almacena en el registro ymm6 (ymm6 = ymm7 - ymm2)
+    vfmadd231ps ymm3, ymm6, ymm6              ; La instrucción vfmadd231ps realiza una operación combinada de multiplicación y suma en un solo paso.
+	                                          ; Por lo tanto, en ymm3 (sumsq) se guarda el resultado de esta sumatoria y multiplicación (sumsq += (x-mean)^2).
+    vminps  ymm4, ymm4, ymm7                  ; Las instrucciones vminps y vmaxps comparan valores de punto flotante de presición simple empaquetados de dos fuentes
+    vmaxps  ymm5, ymm5, ymm7                  ; y devuelven el mínimo y el máximo de cada par respectivamente, por lo tanto estas líneas devolverían el mínimo y máximo
+	                                          ; entre ymm4/ymm5(min y max) y ymm7(x). (min = min(min,x),max = max(max,x))
+    add     eax, 8                            ; i = i+8
+    jmp     .cs_bucle_vectorial               ; Salta de nuevo al incio del bucle vectorial
+	
+;---- Reduccion horizontal ---------------------------------------------------------------
 .cs_reduccion_horizontal: ; Reducción Horizontal de los acumuladores vectoriales a escalares
     ; sumsq: 8 carriles -> escalar (igual que sum_array)
     vextractf128 xmm8, ymm3, 1  ; xmm8 = mitad alta (carriles 4-7)
