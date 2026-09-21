@@ -2,6 +2,7 @@
 ; stats_vector.asm
 ; Version VECTORIZADA (AVX2, 8 floats por iteracion) de los
 ; kernels de computo. Misma ABI que la version escalar.
+; Estudiantes: Steven Loaiza y Felipe Sánchez
 ;
 ; Antes de compilar/ejecutar en su maquina, confirme soporte AVX2:
 ;   lscpu | grep avx2
@@ -27,9 +28,9 @@
 ; Reutilicen este mismo patron en compute_stats y normalize_array.
 ; ---------------------------------------------------------------
 sum_array:
-    xor     eax, eax               ; eax = i = 0
-    vxorps  ymm0, ymm0, ymm0       ; ymm0 = acumulador vectorial (8 carriles) = 0
-
+    xor     eax, eax               ; eax = i = 0. Xor consigo mismo para inicializar a 0
+    vxorps  ymm0, ymm0, ymm0       ; ymm0 = acumulador vectorial (8 carriles) = 0. Nuevamente, xor consigo mismo para inicializar en 0
+                                   ;                                               se usa xorps porque es mas rapido que vmovaps para inicializar a 0
     mov     ecx, esi
     and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
     test    ecx, ecx               ; ecx <= n (prueba casos de ecx menor a 0 o 8)
@@ -88,37 +89,45 @@ sum_array:
 ;      registros YMM.
 ; ---------------------------------------------------------------
 compute_stats:
+;----------------------------------------------------------------
+; Se guardan registros caller-saved que se van a usar en la funcion dado que se llama sum_array, la cual es 
+; una función que destruye estos registros.
+; Esto se hace con el objetivo de que el driver no lea los registros equivocados y que no se pierda información.
+
     push    rbp
     push    rbx
     push    r12
     push    r13
     push    r14
     push    r15
-
-    ; rsp%16 == 8 aqui (6 pushes = 48 bytes, no cambia la paridad de entrada)
-    ; F: Hay que alinear la pila a un múltiplo de 16 bytes antes de llamar a sum_array, porque sum_array hace
-    ; push de rbx y luego hace vmovups (que requiere rsp%16==0). Esto para evitar errores de segmentación.
-
-
-    ; --- placeholder temporal: elimine estas lineas al implementar ---
-    ;vxorps  xmm0, xmm0, xmm0
-    ;vmovss  [rdx], xmm0
-    ;vmovss  [rcx], xmm0
-    ;vmovss  [r8], xmm0
-    ;vmovss  [r9], xmm0
-    ; --- fin placeholder ---
-
+; ----------------------------------------------------------------
+; En esta sección, se guardan los argumentos de la función en los registros callee-saved para poder
+; llamar a sum_array sin perder los valores de los argumentos. Además de copiar el contenido
+; de los registros para evitar que se pierdan datos en caso de que otras funciones llamen a sum_array o compute_stats.
+; Se asignan los registros de la siguiente manera:
+; r12 <- arr
+; r13 <- n
+; rbx <- mean* (puntero a mean)
+; rbp <- var* (puntero a var)
+; r14 <- min* (puntero a min)
+; r15 <- max* (puntero a max)
+;-----------------------------------------------------------------
     mov     r12, rdi            ; arr
     mov     r13d, esi           ; n
     mov     rbx, rdx            ; mean*
     mov     rbp, rcx            ; var*
     mov     r14, r8             ; min*
     mov     r15, r9             ; max*
-
-    test    r13d, r13d
-    jle     .cs_empty           ; r13d <= n, salta a caso borde n=0
-
-    ; --- mean = sum_array(arr, n) / n ---
+;-----------------------------------------------------------------
+;------- Verificación del caso borde (n = 0)----------------------
+    test    r13d, r13d                     ; La instrucción test verifica si n es igual a 0 por medio de una AND y levanta la bandera de salto interna. 
+    jle     .cs_vaciar_registros           ; jle verifica esta bandera. Si n <= 0, salta a la sección de vaciado de registros para evitar una división por cero.
+                                           ; Luego de vaciar los registros, se salta a la sección de cierre de la función para poner los registros de salida en 0.0 y ejecutar 
+                                           ; protocolo de cierre de la función.
+                                           ; Si n>0, se continúa con la ejecución normal de la función.
+;------------------------------------------------------------------
+; ------- Cálculo de mean = sum_array(arr, n) / n -----------------
+; 
     mov     rdi, r12
     mov     esi, r13d
     sub     rsp, 8              ; alinea a 16 antes del call
@@ -138,20 +147,20 @@ compute_stats:
     mov     ecx, r13d           ; ecx = n
     and     ecx, ~7             ; ecx = n redondeado hacia abajo, multiplo de 8
     test    ecx, ecx            ; ecx <= n (prueba casos de ecx menor a 0 o 8)
-    jle     .cs_tail            ; si ecx <= 0, salta al bucle escalar de cierre, si no sigue con el bucle vectorial
+    jle     .cs_reduccion_cola_escalar            ; si ecx <= 0, salta al bucle escalar de cierre, si no sigue con el bucle vectorial
 
-.cs_vec_loop: ; Bucle vectorial
+.cs_bucle_vectorial: ; Bucle vectorial
     cmp     eax, ecx            ; compara i con n redondeado hacia abajo
-    jge     .cs_reduce          ; si i >= n redondeado hacia abajo, salta a la reducción horizontal
+    jge     .cs_reduccion_horizontal          ; si i >= n redondeado hacia abajo, salta a la reducción horizontal
     vmovups ymm7, [r12 + rax*4] ; ymm7 = arr[i:i+7] (carga 8 floats)
     vsubps  ymm6, ymm7, ymm2    ; x - mean
     vfmadd231ps ymm3, ymm6, ymm6   ; sumsq += (x-mean)^2
     vminps  ymm4, ymm4, ymm7      ; min = min(min, x)
     vmaxps  ymm5, ymm5, ymm7      ; max = max(max, x)
     add     eax, 8                ; i = i+8
-    jmp     .cs_vec_loop          ; salta de nuevo al incio del bucle vectorial
+    jmp     .cs_bucle_vectorial          ; salta de nuevo al incio del bucle vectorial
 
-.cs_reduce: ; Reducción Horizontal de los acumuladores vectoriales a escalares
+.cs_reduccion_horizontal: ; Reducción Horizontal de los acumuladores vectoriales a escalares
     ; sumsq: 8 carriles -> escalar (igual que sum_array)
     vextractf128 xmm8, ymm3, 1  ; xmm8 = mitad alta (carriles 4-7)
     vaddps  xmm3, xmm3, xmm8    ; xmm3 = 4 sumas parciales (carriles 0-3 + 4-7)
@@ -174,9 +183,9 @@ compute_stats:
     vmovshdup xmm8, xmm5        ; xmm8 = duplica los 2 carriles bajos de xmm5 a los 2 carriles altos de xmm8 y guarda el resultado en xmm8
     vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre los 2 carriles bajos de xmm5 y los 2 carriles bajos de xmm8
 
-.cs_tail: ; Reducción de cola escalar para el remanente (n % 8)
+.cs_reduccion_cola_escalar: ; Reducción de cola escalar para el remanente (n % 8)
     cmp     eax, r13d
-    jge     .cs_store          ; si i >= n, salta a almacenar resultados, si no continua con la reducción de cola
+    jge     .cs_almacenar_resultados          ; si i >= n, salta a almacenar resultados, si no continua con la reducción de cola
     vmovss  xmm9, [r12 + rax*4]  ; xmm9 = arr[i]
     vsubss  xmm10, xmm9, xmm0      ; x - mean
     vmulss  xmm10, xmm10, xmm10    ; (x-mean)^2
@@ -184,24 +193,24 @@ compute_stats:
     vminss  xmm4, xmm4, xmm9       ; min = min(min, x)
     vmaxss  xmm5, xmm5, xmm9       ; max = max(max, x)
     inc     eax                    ; i = i+1
-    jmp     .cs_tail               ; salta a la reducción de cola
+    jmp     .cs_reduccion_cola_escalar               ; salta a la reducción de cola
 
-.cs_store:
+.cs_almacenar_resultados:
     cvtsi2ss xmm1, r13d         ; convierte n a float, almacena en xmm1
     divss   xmm3, xmm1          ; var = sumsq / n
     movss   [rbp], xmm3         ; guardo var
     movss   [r14], xmm4         ; guardo min
     movss   [r15], xmm5         ; guardo max
-    jmp     .cs_ret             ; salta a protocolo de cierre
+    jmp     .cs_cierre             ; salta a protocolo de cierre
 
-.cs_empty:
+.cs_vaciar_registros:
     xorps   xmm0, xmm0          ; xmm0 = 0.0
     movss   [rbx], xmm0         ; pongo todos en 0 (caso n = 0)
     movss   [rbp], xmm0         ; guardo var = 0
     movss   [r14], xmm0         ; guardo min = 0
     movss   [r15], xmm0         ; guardo max = 0
 
-.cs_ret:
+.cs_cierre:
     vzeroupper                ; evita penalizacion de transicion AVX/SSE
     pop     r15               ; pop de los registros callee-saved
     pop     r14
@@ -233,7 +242,7 @@ compute_stats:
 normalize_array:
     xorps   xmm4, xmm4             ; xmm4 = 0.0
     comiss  xmm1, xmm4             ; compara stddev con 0.0
-    je      .na_copy_path          ; si stddev == 0.0, salta a copiar sin dividir
+    je      .na_camino_copia          ; si stddev == 0.0, salta a copiar sin dividir
 
     ; --- camino normal: (x - mean) / stddev ---
     vbroadcastss ymm2, xmm0        ; mean en 8 carriles
@@ -243,52 +252,52 @@ normalize_array:
     mov     ecx, edx               ; ecx = n
     and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
     test    ecx, ecx
-    jle     .na_tail               ; si ecx <= n (prueba casos de ecx menor a 0 o 8) salta al bucle escalar de cierre
+    jle     .na_bucle_escalar_cierre               ; si ecx <= n (prueba casos de ecx menor a 0 o 8) salta al bucle escalar de cierre
 
-.na_vec_loop: ; bucle vectorial de 8 en 8
+.na_bucle_vectorial: ; bucle vectorial de 8 en 8
     cmp     eax, ecx
-    jge     .na_tail               ; si i >= n redondeado hacia abajo (ecx = n & ~7) salto al bucle escalar de cierre
+    jge     .na_bucle_escalar_cierre               ; si i >= n redondeado hacia abajo (ecx = n & ~7) salto al bucle escalar de cierre
     vmovaps ymm5, [rdi + rax*4]    ; ymm5 = in[i:i+7] (carga 8 floats)
     vsubps  ymm5, ymm5, ymm2       ; ymm5 = in[i:i+7] - mean
     vdivps  ymm5, ymm5, ymm3       ; ymm5 = (in[i:i+7] - mean) / stddev
     vmovaps [rsi + rax*4], ymm5    ; out[i:i+7] = (in[i:i+7] - mean) / stddev
     add     eax, 8                 ; i = i + 8
-    jmp     .na_vec_loop
+    jmp     .na_bucle_vectorial
 
-.na_tail: ; bucle escalar de cierre para el remanente (n % 8)
+.na_bucle_escalar_cierre: ; bucle escalar de cierre para el remanente (n % 8)
     cmp     eax, edx
-    jge     .na_done               ; si i>=n, salto al protocolo de cierre
+    jge     .na_cierre               ; si i>=n, salto al protocolo de cierre
     vmovss  xmm6, [rdi + rax*4]    ; xmm6 = in[i]
     subss   xmm6, xmm0             ; xmm6 = in[i] - mean
     divss   xmm6, xmm1             ; xmm6 = (in[i] - mean) / stddev
     vmovss  [rsi + rax*4], xmm6    ; out[i] = (in[i] - mean) / stddev
     inc     eax                    ; i++
-    jmp     .na_tail
+    jmp     .na_bucle_escalar_cierre
 
-.na_done:
+.na_cierre:
     vzeroupper
     ret
 
-.na_copy_path: ; camino para stddev == 0
+.na_camino_copia: ; camino para stddev == 0
     ; --- stddev == 0: copiar sin dividir ---
     xor     eax, eax           ; eax = i = 0
     mov     ecx, edx           ; ecx = n
     and     ecx, ~7            ; ecx = n redondeado hacia abajo, multiplo de 8
     test    ecx, ecx
-    jle     .na_copy_tail      ;  ecx <= n (prueba casos de ecx menor a 0 o 8)
+    jle     .na_copiar_cola      ;  ecx <= n (prueba casos de ecx menor a 0 o 8)
 
-.na_copy_vec_loop: ; bucle vectorial de 8 en 8 para copiar
+.na_copiar_vectorial: ; bucle vectorial de 8 en 8 para copiar
     cmp     eax, ecx
-    jge     .na_copy_tail      ; si i >= n redondeado hacia abajo (ecx = n & ~7) salta a la copia escalar de cierre 
+    jge     .na_copiar_cola      ; si i >= n redondeado hacia abajo (ecx = n & ~7) salta a la copia escalar de cierre 
     vmovaps ymm5, [rdi + rax*4] ; ymm5 = in[i:i+7] (carga 8 floats)
     vmovaps [rsi + rax*4], ymm5 ; out[i:i+7] = in[i:i+7] (guarda 8 floats)
     add     eax, 8              ; i = i + 8
-    jmp     .na_copy_vec_loop
+    jmp     .na_copiar_vectorial
 
-.na_copy_tail: ; bucle escalar de cierre para el remanente (n % 8)
+.na_copiar_cola: ; bucle escalar de cierre para el remanente (n % 8)
     cmp     eax, edx           ; i >= n?
-    jge     .na_done           ; salto protocolo de cierre
+    jge     .na_cierre           ; salto protocolo de cierre
     vmovss  xmm6, [rdi + rax*4] ; xmm6 = in[i]
     vmovss  [rsi + rax*4], xmm6 ; out[i] = in[i]
     inc     eax                 ; i++
-    jmp     .na_copy_tail
+    jmp     .na_copiar_cola
