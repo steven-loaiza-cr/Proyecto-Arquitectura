@@ -136,7 +136,7 @@ compute_stats:
 
     cvtsi2ss xmm1, r13d         ; Con la instrucción cvtsi2ss convierto el contenido de r13d (n) a un valor 
 	                            ; escalar de punto flotante con presición simple. Por lo tanto: xmm1 = n (flotante)
-    divss   xmm0, xmm1          ; Calculo la media después de la llamada de sum array xmm0 = xmm0/n
+    divss   xmm0, xmm1          ; Calculo la media después de la llamada de sum array xmm0 = xmm0/n = mean
     movss   [rbx], xmm0         ; Guarda mean en el puntero a rbx*
 
     vbroadcastss ymm2, xmm0          ; Con la instrucción vbroadcastss replico el contenido de xmm0 (mean) a un registro YMM de 8 carriles
@@ -167,65 +167,92 @@ compute_stats:
     jmp     .cs_bucle_vectorial               ; Salta de nuevo al incio del bucle vectorial
 	
 ;---- Reduccion horizontal ---------------------------------------------------------------
-.cs_reduccion_horizontal: ; Reducción Horizontal de los acumuladores vectoriales a escalares
-    ; sumsq: 8 carriles -> escalar (igual que sum_array)
-    vextractf128 xmm8, ymm3, 1  ; xmm8 = mitad alta (carriles 4-7)
+.cs_reduccion_horizontal:
+    ; Se convierte el acumulador sumsq de vectorial de 8 carriles a
+    ; un escalar implementando la reducción horizontal descrita en la
+    ; función sum_array. También se hace lo mismo con los acumuladores de min y max
+    ; para obtener el mínimo y máximo de los 8 carriles de cada uno.
+    ; La instrucción vextractf128 extrae la mitad alta de un registro YMM y la alamacena en un registro XMM. 
+    ; Se hace uso de esta instrucción en recurridas ocasiones para reducir los 8 carriles de un registro YMM a 4 carriles en un registro XMM.
+    ; La instrucción vhaddps realiza una suma horizontal de los valores de punto flotante empaquetados de presición simple en un registro XMM,
+    ; Por lo tanto, esta es la encargada de reducir los 4 carriles de un registro XMM a 2 carriles y luego a 1 carril.
+    ; vminps y vmaxps devuelven el mínimo y máxmino de cada par respectivamente, por lo tanto estas líneas devolverían el mínimo y máximo
+    ; entre los 4 carriles bajos de ymm4/ymm5(min y max) y los 4 carriles altos de xmm8.
+    ; Por último, se hace uso de la instrucciones vmovhlps y vmovshdup para mover los carriles 
+    ; altos o bajos de un registro XMM a los carriles bajos o altos de otro registro XMM. Esto se hace para poder
+    ; comparar los 2 carriles bajos de un registro XMM con los 2 carriles altos de otro registro XMM.
+    
+    ; sumsq: 8 carriles -> escalar
+    vextractf128 xmm8, ymm3, 1  ; Se extrae la mitad alta del acumulador ymm3 (sumsq) y se almacena en el registro xmm8 (xmm8 = mitad alta de ymm3 (carriles 4-7))
     vaddps  xmm3, xmm3, xmm8    ; xmm3 = 4 sumas parciales (carriles 0-3 + 4-7)
     vhaddps xmm3, xmm3, xmm3    ; xmm3 = suma horizontal dentro de 128 bits
     vhaddps xmm3, xmm3, xmm3    ; xmm3[0] = suma total de los 8 carriles originales
 
     ; min: 8 carriles -> escalar
     vextractf128 xmm8, ymm4, 1  ; xmm8 = mitad alta (carriles 4-7)
-    vminps  xmm4, xmm4, xmm8    ; xmm4 = mínimo entre los 4 carriles bajos de ymm4 y los 4 carriles altos de xmm8
+    vminps  xmm4, xmm4, xmm8    ; xmm4 = mínimo entre xmm4 (carriles 0-3) y xmm8 (carriles 4-7)
     vmovhlps xmm8, xmm4, xmm4   ; xmm8 = mueve 2 carriles altos de xmm4 a los 2 carriles bajos de xmm8
-    vminps  xmm4, xmm4, xmm8    ; xmm4 = mínimo entre los 2 carriles bajos de xmm4 y los 2 carriles bajos de xmm8
+    vminps  xmm4, xmm4, xmm8    ; xmm4 = mínimo entre xmm4 (carriles 0-1) y xmm8 (carriles 2-3)
     vmovshdup xmm8, xmm4        ; xmm8 = duplica los 2 carriles bajos de xmm4 a los 2 carriles altos de xmm8
-    vminps  xmm4, xmm4, xmm8    ; xmm4 = mínimo entre los 2 carriles bajos de xmm4 y los 2 carriles bajos de xmm8
+    vminps  xmm4, xmm4, xmm8    ; xmm4 = mínimo entre xmm4 (carriles 0-1) y xmm8 (carriles 2-3)
 
     ; max: 8 carriles -> escalar
     vextractf128 xmm8, ymm5, 1  ; xmm8 = mitad alta (carriles 4-7)
-    vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre los 4 carriles bajos de ymm5 y los 4 carriles altos de xmm8
+    vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo de ymm5 (carriles 0-3) y xmm8 (carriles 4-7)
     vmovhlps xmm8, xmm5, xmm5   ; xmm8 = mueve 2 carriles altos de xmm5 a los 2 carriles bajos de xmm8
-    vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre los 2 carriles bajos de xmm5 y los 2 carriles bajos de xmm8
-    vmovshdup xmm8, xmm5        ; xmm8 = duplica los 2 carriles bajos de xmm5 a los 2 carriles altos de xmm8 y guarda el resultado en xmm8
-    vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre los 2 carriles bajos de xmm5 y los 2 carriles bajos de xmm8
+    vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre xmm5 (carriles 0-1) y xmm8 (carriles 2-3)
+    vmovshdup xmm8, xmm5        ; xmm8 = duplica los 2 carriles bajos xmm5 a los 2 carriles altos de xmm8
+    vmaxps  xmm5, xmm5, xmm8    ; xmm5 = máximo entre xmm5 (carriles 0-1) y xmm8 (carriles 2-3)
 
-.cs_reduccion_cola_escalar: ; Reducción de cola escalar para el remanente (n % 8)
+; --- Reducción de cola escalar ------------------------------------------------------
+.cs_reduccion_cola_escalar:
+;  En esta sección se hace la reducción de cola escalar para los elementos sobrantes (n % 8), uno a la vez.
+;  Además de esto, se hace uso de las instrucciones vsubss, vmulss, vaddss, vminss y vmaxss para realizar 
+;  las operaciones de resta, multiplicación, suma, mínimo y máximo respectivamente.
+;  PD(Nota de Felipe): No explico mucho porque ya es un poco redundante y similar al proceso anterior, solo que con escalares. 
     cmp     eax, r13d
     jge     .cs_almacenar_resultados          ; si i >= n, salta a almacenar resultados, si no continua con la reducción de cola
-    vmovss  xmm9, [r12 + rax*4]  ; xmm9 = arr[i]
-    vsubss  xmm10, xmm9, xmm0      ; x - mean
-    vmulss  xmm10, xmm10, xmm10    ; (x-mean)^2
-    vaddss  xmm3, xmm3, xmm10      ; sumsq += (x-mean)^2
-    vminss  xmm4, xmm4, xmm9       ; min = min(min, x)
-    vmaxss  xmm5, xmm5, xmm9       ; max = max(max, x)
-    inc     eax                    ; i = i+1
-    jmp     .cs_reduccion_cola_escalar               ; salta a la reducción de cola
+    vmovss  xmm9, [r12 + rax*4]               ; xmm9 = arr[i]
+    vsubss  xmm10, xmm9, xmm0                 ; xmm10 = x - mean
+    vmulss  xmm10, xmm10, xmm10               ; xmm10 = (x-mean)^2
+    vaddss  xmm3, xmm3, xmm10                 ; xmm3 = sumsq += (x-mean)^2
+    vminss  xmm4, xmm4, xmm9                  ; xmm4 = min(min, x)
+    vmaxss  xmm5, xmm5, xmm9                  ; xmm5 = max(max, x)
+    inc     eax                               ; i = i+1
+    jmp     .cs_reduccion_cola_escalar        ; salta al inicio de reducción de cola
 
+; --- Almacenamiento de resultados ------------------------------------------------------
 .cs_almacenar_resultados:
-    cvtsi2ss xmm1, r13d         ; convierte n a float, almacena en xmm1
+; Aquí se almacenan los resultados de interés (mean, var, min, max) en sus respectivos punteros de salida.
     divss   xmm3, xmm1          ; var = sumsq / n
     movss   [rbp], xmm3         ; guardo var
     movss   [r14], xmm4         ; guardo min
     movss   [r15], xmm5         ; guardo max
-    jmp     .cs_cierre             ; salta a protocolo de cierre
+    jmp     .cs_cierre          ; salta a protocolo de cierre
 
+; -- Caso borde (n = 0) ------------------------------------------------------
 .cs_vaciar_registros:
+; Aquí se vacían los registros de salida (mean, var, min, max) a 0.0 en caso de que n = 0
+; para evitar división por cero y errores de cálculo.
     xorps   xmm0, xmm0          ; xmm0 = 0.0
     movss   [rbx], xmm0         ; pongo todos en 0 (caso n = 0)
     movss   [rbp], xmm0         ; guardo var = 0
     movss   [r14], xmm0         ; guardo min = 0
     movss   [r15], xmm0         ; guardo max = 0
 
+; -- Protocolo de cierre ------------------------------------------------------
 .cs_cierre:
+; Aquí se hace el protocolo de cierre de la función, donde se restauran los registros callee-saved
+; que se habían guardado al inicio de la función para evitar perder información,
+; ocasionar segfaults y evitar penalizaciones de transición AVX/SSE.
     vzeroupper                ; evita penalizacion de transicion AVX/SSE
-    pop     r15               ; pop de los registros callee-saved
-    pop     r14
+    pop     r15               ; pop de los registros callee-saved en orden inverso a como
+    pop     r14               ; se introdujeron a la pila para evitar segfaults. 
     pop     r13
     pop     r12
     pop     rbx
     pop     rbp
-    ret                      ; Fin de la función
+    ret                       ; Fin de la función
 
 ; ---------------------------------------------------------------
 ; void normalize_array(const float *in, float *out, int n,
