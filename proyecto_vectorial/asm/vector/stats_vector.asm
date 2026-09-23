@@ -274,64 +274,82 @@ compute_stats:
 ;   - 'vzeroupper' antes del 'ret'.
 ; ---------------------------------------------------------------
 normalize_array:
-    xorps   xmm4, xmm4             ; xmm4 = 0.0
-    comiss  xmm1, xmm4             ; compara stddev con 0.0
-    je      .na_camino_copia          ; si stddev == 0.0, salta a copiar sin dividir
+; ---------------------------------------------------------------
+; Con esta función se aplica la transformación de estandarización a un arreglo de flotantes.
+; Se hace uso de la instrucción comiss para comparar el valor de stddev con 0.0 y si es igual,
+; se salta a un camino alternativo donde se copia el arreglo de entrada al arreglo de salida sin realizar la transformación.
+
+    xorps   xmm4, xmm4             ; Se inicializa el registro xmm4 = 0.0 para comparar con stddev
+    comiss  xmm1, xmm4             ; Se compara stddev con 0.0
+    je      .na_camino_copia       ; Si stddev == 0.0, salta a copiar sin dividir, si no, continua con el camino normal de estandarización.
 
     ; --- camino normal: (x - mean) / stddev ---
-    vbroadcastss ymm2, xmm0        ; mean en 8 carriles
-    vbroadcastss ymm3, xmm1        ; stddev en 8 carriles
+    vbroadcastss ymm2, xmm0        ; Replico xmm0(mean) en 8 carriles (ymm2) => ymm2 = mean
+    vbroadcastss ymm3, xmm1        ; Replico xmm1(stddev) en 8 carriles (ymm3) => ymm3 = stddev
 
-    xor     eax, eax               ; eax = i = 0
-    mov     ecx, edx               ; ecx = n
-    and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
+    xor     eax, eax                               ; Inicializo el contador en 0 utilizando xor con sí mismo (eax = i = 0)
+    mov     ecx, edx                               ; ecx = n
+    and     ecx, ~7                                ; ecx = n&~7 (redondeo hacia abajo al múltiplo de 8)
     test    ecx, ecx
-    jle     .na_bucle_escalar_cierre               ; si ecx <= n (prueba casos de ecx menor a 0 o 8) salta al bucle escalar de cierre
+    jle     .na_bucle_escalar_cierre               ; Si ecx <= n (prueba casos de ecx menor a 0 o 8) salta al bucle escalar de cierre.
+                                                   ; Si no, entoces continúa con el bucle vectorial.
 
-.na_bucle_vectorial: ; bucle vectorial de 8 en 8
-    cmp     eax, ecx
-    jge     .na_bucle_escalar_cierre               ; si i >= n redondeado hacia abajo (ecx = n & ~7) salto al bucle escalar de cierre
-    vmovaps ymm5, [rdi + rax*4]    ; ymm5 = in[i:i+7] (carga 8 floats)
-    vsubps  ymm5, ymm5, ymm2       ; ymm5 = in[i:i+7] - mean
-    vdivps  ymm5, ymm5, ymm3       ; ymm5 = (in[i:i+7] - mean) / stddev
-    vmovaps [rsi + rax*4], ymm5    ; out[i:i+7] = (in[i:i+7] - mean) / stddev
-    add     eax, 8                 ; i = i + 8
-    jmp     .na_bucle_vectorial
+;----- Bucle vectorial de 8 en 8 para estandarización ----------
+.na_bucle_vectorial:
+; En esta sección se hace la estandarización de 8 elementos del arreglo de entrada a la vez, utilizando instrucciones vectoriales.
 
-.na_bucle_escalar_cierre: ; bucle escalar de cierre para el remanente (n % 8)
-    cmp     eax, edx
-    jge     .na_cierre               ; si i>=n, salto al protocolo de cierre
-    vmovss  xmm6, [rdi + rax*4]    ; xmm6 = in[i]
-    subss   xmm6, xmm0             ; xmm6 = in[i] - mean
-    divss   xmm6, xmm1             ; xmm6 = (in[i] - mean) / stddev
-    vmovss  [rsi + rax*4], xmm6    ; out[i] = (in[i] - mean) / stddev
-    inc     eax                    ; i++
-    jmp     .na_bucle_escalar_cierre
+    cmp     eax, ecx                               ; Se compara eax (i) con ecx (n&~7).
+    jge     .na_bucle_escalar_cierre               ; Si i >= n&~7, salto al bucle escalar de cierre, si no continua con la estandarización vectorial.
+    vmovaps ymm5, [rdi + rax*4]                    ; Carga el contenido alineado de in[i] en el registro ymm5 (carga 8 floats)
+    vsubps  ymm5, ymm5, ymm2                       ; Resta ymm5(in[i]) con ymm2(mean) y lo guarda en ymm5 (ymm5 = in[i] - mean)
+    vdivps  ymm5, ymm5, ymm3                       ; Divide el contenido de ymm5(in[i] - mean) con ymm3(stddev)  y lo guarda en ymm5 (ymm5 = (in[i] - mean) / stddev)
+    vmovaps [rsi + rax*4], ymm5                    ; Se guarda el contenido de la operación en el puntero de salida out[i] (out[i] = (in[i] - mean) / stddev)
+    add     eax, 8                                 ; i = i + 8
+    jmp     .na_bucle_vectorial                    ; Regresa al incio del bucle vectorial
 
+;--- Bucle escalar de cierre para el remanente -----------------
+.na_bucle_escalar_cierre:
+; En este bucle se normalizan los elementos sobrantes de los registros YMM. Mismo procedimeinto
+; que el bucle vectorial, solamente que con instrucciones escalares.
+
+    cmp     eax, edx                 ; Comparo eax (i) con n, si i>=n, salto al protocolo de cierre,
+    jge     .na_cierre               ; Si no, continua la normalización escalar del remanente
+    vmovss  xmm6, [rdi + rax*4]      ; Copio el contenido de in[i] a xmm6 (xmm6 = in[i])
+    subss   xmm6, xmm0               ; Resto con xmm0(mean) y guardo en xmm6 (xmm6 = in[i] - mean)
+    divss   xmm6, xmm1               ; Divido xmm6 con xmm1(stddev) (xmm6 = (in[i] - mean) / stddev)
+    vmovss  [rsi + rax*4], xmm6      ; Guardo el contenido en el puntero de salida out[i] (out[i] = (in[i] - mean) / stddev)
+    inc     eax                      ; i++
+    jmp     .na_bucle_escalar_cierre ; Regreso al incio del bucle
+
+;-- Protocolo de cierre -----------------------------------------
 .na_cierre:
+; Se utiliza vzerroupper para evitar penalizaciones
     vzeroupper
     ret
 
-.na_camino_copia: ; camino para stddev == 0
-    ; --- stddev == 0: copiar sin dividir ---
+;--------- Camino para stddev == 0 -----------------------------
+; Se copia out[i] = in[i] para evitar división por cero
+.na_camino_copia: 
     xor     eax, eax           ; eax = i = 0
     mov     ecx, edx           ; ecx = n
-    and     ecx, ~7            ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx
-    jle     .na_copiar_cola      ;  ecx <= n (prueba casos de ecx menor a 0 o 8)
+    and     ecx, ~7            ; ecx = n&~7
+    test    ecx, ecx           ; comparo si ecx <= n. Comparo para los casos en que ecx sea menor a 0 o 8.
+    jle     .na_copiar_cola    ;  Si ecx <= n, se dirije al bucle escalar de cierre para la cola, si no entra al bucle vectorial.
 
-.na_copiar_vectorial: ; bucle vectorial de 8 en 8 para copiar
-    cmp     eax, ecx
-    jge     .na_copiar_cola      ; si i >= n redondeado hacia abajo (ecx = n & ~7) salta a la copia escalar de cierre 
-    vmovaps ymm5, [rdi + rax*4] ; ymm5 = in[i:i+7] (carga 8 floats)
-    vmovaps [rsi + rax*4], ymm5 ; out[i:i+7] = in[i:i+7] (guarda 8 floats)
-    add     eax, 8              ; i = i + 8
+;--------- Bucle vectorial de copia ----------------------------
+.na_copiar_vectorial:
+    cmp     eax, ecx             
+    jge     .na_copiar_cola       ; si i >= n redondeado hacia abajo (ecx = n & ~7) salta a la copia escalar de cierre 
+    vmovaps ymm5, [rdi + rax*4]   ; ymm5 = in[i] (carga 8 floats)
+    vmovaps [rsi + rax*4], ymm5   ; out[i] = in[i] (guarda 8 floats)
+    add     eax, 8                ; i = i + 8
     jmp     .na_copiar_vectorial
 
-.na_copiar_cola: ; bucle escalar de cierre para el remanente (n % 8)
-    cmp     eax, edx           ; i >= n?
-    jge     .na_cierre           ; salto protocolo de cierre
-    vmovss  xmm6, [rdi + rax*4] ; xmm6 = in[i]
-    vmovss  [rsi + rax*4], xmm6 ; out[i] = in[i]
-    inc     eax                 ; i++
+; -------- Bucle escalar de copia para el remanente ------------
+.na_copiar_cola:
+    cmp     eax, edx             ; i >= n?
+    jge     .na_cierre           ; Salto protocolo de cierre
+    vmovss  xmm6, [rdi + rax*4]  ; xmm6 = in[i]
+    vmovss  [rsi + rax*4], xmm6  ; out[i] = in[i]
+    inc     eax                  ; i++
     jmp     .na_copiar_cola
