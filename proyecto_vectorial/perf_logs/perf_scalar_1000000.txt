@@ -1,0 +1,21 @@
+N        = 1000000
+Suma     = 2908.841797
+Media    = 0.002909
+Varianza = 3327.959717
+StdDev   = 57.688473
+Minimo   = -99.999901
+Maximo   = 99.999786
+Tiempo promedio del kernel (30 rep.): 4.891255 ms
+
+ Performance counter stats for './bin/norm_scalar data/perf_input_1000000.dat data/perf_output_scalar_1000000.dat 30':
+
+       660 447 399      cycles                                                                
+       978 824 149      instructions                                                          
+           526 017      cache-misses                                                          
+
+       0,156785830 seconds time elapsed
+
+       0,147315000 seconds user
+       0,008958000 seconds sys
+
+

@@ -1,0 +1,12 @@
+N = 0              | 0      | mu=0 var=0 min=0 max=0                               | mu=0 var=0 min=0 max=0                               | mu=0 var=0 min=0 max=0
+   -> Pasa: Si
+N = 1              | 1      | mu=27.8854 var=0 min=27.8854 max=27.8854             | mu=27.8853588 var=0 min=27.8853588 max=27.8853588    | mu=27.8853588 var=0 min=27.8853588 max=27.8853588
+   -> Pasa: Si
+N no multiplo de 8 (remanente, N=15) | 15     | mu=-25.2542 var=3169.04 min=-94.9978 max=78.4359     | mu=-25.2541733 var=3169.04468 min=-94.9978485 max=78.4359131 | mu=-25.2541733 var=3169.04468 min=-94.9978485 max=78.4359131
+   -> Pasa: Si
+Todos los valores iguales (sigma=0, N=1000) | 1000   | mu=5 var=0 min=5 max=5                               | mu=5 var=0 min=5 max=5                               | mu=5 var=0 min=5 max=5
+   -> Pasa: Si
+Valores negativos (N=64) | 64     | mu=-266.493 var=20437.1 min=-496.751 max=-5.23931    | mu=-266.493408 var=20437.1445 min=-496.750641 max=-5.23931408 | mu=-266.493347 var=20437.1426 min=-496.750641 max=-5.23931408
+   -> Pasa: Si
+Valores extremos (N=100) | 100    | mu=0 var=3e+11 min=-1e+06 max=1e+06                  | mu=0 var=2.99999953e+11 min=-1000000 max=1000000     | mu=0 var=2.99999986e+11 min=-1000000 max=1000000
+   -> Pasa: Si

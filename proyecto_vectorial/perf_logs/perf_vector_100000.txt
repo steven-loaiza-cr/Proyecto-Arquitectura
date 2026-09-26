@@ -1,0 +1,21 @@
+N        = 100000
+Suma     = 2885.825684
+Media    = 0.028858
+Varianza = 3341.695312
+StdDev   = 57.807400
+Minimo   = -99.998718
+Maximo   = 99.999565
+Tiempo promedio del kernel (30 rep.): 0.057347 ms
+
+ Performance counter stats for './bin/norm_vector data/perf_input_100000.dat data/perf_output_vector_100000.dat 30':
+
+        15 459 616      cycles                                                                
+        13 985 056      instructions                                                          
+           113 504      cache-misses                                                          
+
+       0,005527869 seconds time elapsed
+
+       0,001873000 seconds user
+       0,003747000 seconds sys
+
+
